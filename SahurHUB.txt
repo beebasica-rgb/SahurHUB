@@ -4152,14 +4152,19 @@ end)
 
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(0.05)
         if not Config.AutoKickOnSteal then continue end
+        local kicked = false
         for _, gui in ipairs(PlayerGui:GetDescendants()) do
             local txt = (gui:IsA("TextLabel") or gui:IsA("TextButton")) and gui.Text
             if txt and string.find(txt, "You stole") then
-                kickPlayer()
-                return
+                kicked = true
+                break
             end
+        end
+        if kicked then
+            kickPlayer()
+            return
         end
     end
 end)
