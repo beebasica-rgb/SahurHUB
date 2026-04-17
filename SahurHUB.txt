@@ -6457,6 +6457,109 @@ local function _desyncOnSteal_Teardown()
     end
 end
 
+-- Desync on Load: desactivar temporalmente al morir/respawnear y reactivar tras 1.5s
+if Config.DesyncOnLoad then
+    local function _desyncOnLoad_Reactivate()
+        if not Config.DesyncOnLoad then return end
+        if _G._desyncLoopRunning then return end
+        _G._desyncLoopRunning = true
+        _G._desyncVisualActive = true
+        pcall(function()
+            if _G._serverPosPart and _G._serverPosPart.Parent then return end
+            local _c = LocalPlayer.Character
+            local _hrp = _c and _c:FindFirstChild("HumanoidRootPart")
+            if not _hrp then return end
+            local _part = Instance.new("Part")
+            _part.Name = "ServerPosSphere"
+            _part.Shape = Enum.PartType.Ball
+            _part.Size = Vector3.new(3.5, 3.5, 3.5)
+            _part.CFrame = CFrame.new(_hrp.Position)
+            _part.Anchored = true
+            _part.CanCollide = false
+            _part.CanQuery = false
+            _part.CanTouch = false
+            _part.Material = Enum.Material.Neon
+            _part.Color = Color3.fromRGB(255, 80, 80)
+            _part.Transparency = 0.2
+            _part.CastShadow = false
+            _part.Parent = workspace
+            local _bill = Instance.new("BillboardGui")
+            _bill.Size = UDim2.new(0, 120, 0, 32)
+            _bill.StudsOffset = Vector3.new(0, 3.5, 0)
+            _bill.AlwaysOnTop = true
+            _bill.Adornee = _part
+            _bill.Parent = _part
+            local _bg = Instance.new("Frame")
+            _bg.Size = UDim2.new(1,0,1,0)
+            _bg.BackgroundColor3 = Color3.fromRGB(20,20,20)
+            _bg.BackgroundTransparency = 0.25
+            _bg.BorderSizePixel = 0
+            _bg.Parent = _bill
+            Instance.new("UICorner", _bg).CornerRadius = UDim.new(1,0)
+            local _lbl = Instance.new("TextLabel")
+            _lbl.Size = UDim2.new(1,0,1,0)
+            _lbl.BackgroundTransparency = 1
+            _lbl.Text = "Server Pos"
+            _lbl.TextColor3 = Color3.fromRGB(255,100,100)
+            _lbl.Font = Enum.Font.GothamBold
+            _lbl.TextSize = 13
+            _lbl.Parent = _bg
+            _G._serverPosPart = _part
+            local _prevPos = _hrp.Position
+            local _LAGBACK = 2
+            _G._serverPosConn = RunService.Heartbeat:Connect(function(dt)
+                if not _G._desyncLoopRunning then return end
+                local _c2 = LocalPlayer.Character
+                local _h2 = _c2 and _c2:FindFirstChild("HumanoidRootPart")
+                if not _h2 then return end
+                local _cur = _h2.Position
+                local _fd = (_cur - _prevPos).Magnitude
+                if _fd > (50*dt+1) and _fd > _LAGBACK then
+                    if _G._serverPosPart and _G._serverPosPart.Parent then
+                        _G._serverPosPart.CFrame = CFrame.new(_cur)
+                    end
+                end
+                _prevPos = _cur
+            end)
+            task.spawn(function()
+                while _part and _part.Parent do
+                    for i=1,8 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
+                    for i=8,1,-1 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
+                end
+            end)
+            pcall(function()
+                if raknet and raknet.add_send_hook and not _G._desyncOnStealHook then
+                    _G._desyncOnStealHook = raknet.add_send_hook(function(packet)
+                        if packet.PacketId == 0x1B then
+                            local buf = packet.AsBuffer
+                            buffer.writeu32(buf, 1, 0xFFFFFFFF)
+                            buffer.writeu32(buf, 5, 0xFFFFFFFF)
+                            buffer.writeu32(buf, 9, 0xFFFFFFFF)
+                            packet:SetData(buf)
+                        end
+                    end)
+                end
+                if raknet and raknet.add_recv_hook and not _G._desyncRecvHook then
+                    _G._desyncRecvHook = raknet.add_recv_hook(function(packet)
+                        if packet.PacketId == 0x1B or packet.PacketId == 0x86 or packet.PacketId == 0x83 or packet.PacketId == 0x85 then
+                            packet:Drop()
+                        end
+                    end)
+                end
+            end)
+            ShowNotification("DESYNC ON LOAD", "Desync reactivado tras respawn")
+        end)
+    end
+
+    LocalPlayer.CharacterAdded:Connect(function()
+        if not Config.DesyncOnLoad then return end
+        _desyncOnSteal_Teardown()
+        task.wait(1.5)
+        _desyncOnLoad_Reactivate()
+    end)
+end
+
+
 LocalPlayer:GetAttributeChangedSignal("Stealing"):Connect(function()
     local isStealing = LocalPlayer:GetAttribute("Stealing")
 
