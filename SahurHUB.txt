@@ -53,7 +53,7 @@ do
             end
         end
     end
-    print("Sahur hub cargado, discord.gg/8HNEwrZUut")
+    print("Sahur hub (anti-kick build) cargado, discord.gg/8HNEwrZUut")
 end
 
 -- A partir de aqui SI podemos esperar tranquilos: el anticheat ya esta neutralizado.
@@ -248,6 +248,7 @@ local DefaultConfig = {
     StealBarDelay = 0,
     DesyncOnSteal = false,
     DesyncOnLoad = false,
+    ResetOnDesyncLoad = false,
 }
 
 
@@ -326,7 +327,7 @@ end
 local Controls = getControls()
 
 local function kickPlayer()
-    LocalPlayer:Kick("\ndiscord.gg/8HNEwrZUut - xi loves you <3")
+    LocalPlayer:Kick("\ndiscord.gg/8HNEwrZUut on top - eterea loves you <3")
 end
 
 local _dropBrainrotCooldown = false
@@ -463,15 +464,15 @@ local function instantClone()
             hum:EquipTool(cloner)
         end)
 
-        task.wait(0.05)
+        task.wait(0.02)
 
         cloner:Activate()
-        task.wait(0.05)
+        task.wait(0.02)
 
         local cloneName = tostring(LocalPlayer.UserId) .. "_Clone"
         for _ = 1, 100 do
             if Workspace:FindFirstChild(cloneName) then break end
-            task.wait(0.1)
+            task.wait(0.02)
         end
 
         if not Workspace:FindFirstChild(cloneName) then
@@ -1254,172 +1255,66 @@ end
 
 
 -- ============================================================
--- ANTI RAGDOLL (version 44S Duel - MEJORADO)
+-- ANTI RAGDOLL (Sunset Duels logic)
 -- ============================================================
-local _antiRagdollConns = {}
-
-local _ragdollBadStates = {
-    Enum.HumanoidStateType.Ragdoll,
-    Enum.HumanoidStateType.FallingDown,
-    Enum.HumanoidStateType.Physics,
-}
-
-local function _forceRecoverRagdoll(hum, char)
-    if not hum or not char then return end
-
-    -- Durante drop brainrot: recuperar estado pero NO zerificar velocidad
-    if _G._dropBrainrotActive then
-        pcall(function() hum.PlatformStand = false end)
-        for i = 1, 3 do
-            pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
-            pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
-        end
-        for _, obj in ipairs(char:GetDescendants()) do
-            if obj:IsA("Motor6D") and not obj.Enabled then obj.Enabled = true end
-        end
-        return
-    end
-
-    if _G.invisibleStealEnabled and _G.toggleInvisibleSteal then
-        pcall(_G.toggleInvisibleSteal)
-    end
-
-    pcall(function() hum.PlatformStand = false end)
-
-    for i = 1, 3 do
-        pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
-        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
-    end
-
-    pcall(function() Workspace.CurrentCamera.CameraSubject = hum end)
-
-    pcall(function()
-        local pm = LocalPlayer:FindFirstChild("PlayerScripts")
-        if pm then
-            local PlayerModule = pm:FindFirstChild("PlayerModule")
-            if PlayerModule then
-                require(PlayerModule):GetControls():Enable()
-            end
-        end
-    end)
-
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if root then
-        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-    end
-
-    for _, obj in ipairs(char:GetDescendants()) do
-        if obj:IsA("BallSocketConstraint") or obj:IsA("HingeConstraint") or obj:IsA("NoCollisionConstraint") then
-            pcall(function() obj:Destroy() end)
-        end
-    end
-end
+local _antiRagdollConn = nil
 
 local function startAntiRagdollPrime()
-    for _, c in pairs(_antiRagdollConns) do pcall(function() c:Disconnect() end) end
-    _antiRagdollConns = {}
-
-    local function setupChar(char)
-        if not char then return end
-        local hum = char:WaitForChild("Humanoid", 10)
-        if not hum then return end
-
-        for _, state in ipairs(_ragdollBadStates) do
-            pcall(function() hum:SetStateEnabled(state, false) end)
-        end
-
-        pcall(function() hum.PlatformStand = false end)
-
-        for _, obj in ipairs(char:GetDescendants()) do
-            if obj:IsA("BallSocketConstraint") or obj:IsA("HingeConstraint") or obj:IsA("NoCollisionConstraint") then
-                pcall(function() obj:Destroy() end)
-            end
-            if obj:IsA("Motor6D") and not obj.Enabled then
-                obj.Enabled = true
-            end
-        end
-
-        local cState = hum.StateChanged:Connect(function(_, newState)
-            if not Config.AntiRagdollPrime then return end
-            local isTping = State and State.isTpMoving
-            if isTping then return end
-
-            if newState == Enum.HumanoidStateType.Physics or
-               newState == Enum.HumanoidStateType.Ragdoll or
-               newState == Enum.HumanoidStateType.FallingDown then
-                task.defer(function() _forceRecoverRagdoll(hum, char) end)
-            end
-        end)
-        table.insert(_antiRagdollConns, cState)
-
-        local cPlatform
-        cPlatform = hum:GetPropertyChangedSignal("PlatformStand"):Connect(function()
-            if not Config.AntiRagdollPrime then return end
-            if hum.PlatformStand == true then
-                pcall(function() hum.PlatformStand = false end)
-                task.defer(function() _forceRecoverRagdoll(hum, char) end)
-            end
-        end)
-        table.insert(_antiRagdollConns, cPlatform)
-
-        -- Heartbeat con throttle 0.5 s. Antes corria cada frame y el anticheat
-        -- detectaba la divergencia (cliente nunca entraba en Physics/Ragdoll) y
-        -- kickeaba a los ~40s. Ahora solo recupera ragdoll bajo demanda y deja
-        -- que SetStateEnabled actue una sola vez (en setup), sin spam.
-        local _arNext = 0
-        local c1 = RunService.Heartbeat:Connect(function()
-            if not Config.AntiRagdollPrime then return end
-            local now = os.clock()
-            if now < _arNext then return end
-            _arNext = now + 0.5
-
-            local isTping = State and State.isTpMoving
-            if isTping then return end
-
-            local humState = hum:GetState()
-            if humState == Enum.HumanoidStateType.Physics or
-               humState == Enum.HumanoidStateType.Ragdoll or
-               humState == Enum.HumanoidStateType.FallingDown then
-                _forceRecoverRagdoll(hum, char)
-            end
-        end)
-        table.insert(_antiRagdollConns, c1)
-
-        local c2 = char.DescendantAdded:Connect(function(v)
-            if not Config.AntiRagdollPrime then return end
-            local isTping = State and State.isTpMoving
-            if isTping then return end
-            if v:IsA("BallSocketConstraint") or v:IsA("HingeConstraint") or v:IsA("NoCollisionConstraint") then
-                pcall(function() v:Destroy() end)
-            elseif v:IsA("Motor6D") then
-                v.Enabled = true
-            end
-        end)
-        table.insert(_antiRagdollConns, c2)
+    if _antiRagdollConn then
+        pcall(function() _antiRagdollConn:Disconnect() end)
+        _antiRagdollConn = nil
     end
 
-    local char = LocalPlayer.Character
-    if char then task.spawn(function() setupChar(char) end) end
+    _antiRagdollConn = RunService.Heartbeat:Connect(function()
+        if not Config.AntiRagdollPrime then return end
 
-    local c3 = LocalPlayer.CharacterAdded:Connect(function(c)
-        task.wait(0.1)
-        task.spawn(function() setupChar(c) end)
+        pcall(function()
+            local char = LocalPlayer.Character
+            if not char then return end
+
+            local root = char:FindFirstChild("HumanoidRootPart")
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+
+            if humanoid then
+                local humState = humanoid:GetState()
+                if humState == Enum.HumanoidStateType.Physics or
+                   humState == Enum.HumanoidStateType.Ragdoll or
+                   humState == Enum.HumanoidStateType.FallingDown then
+
+                    humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                    Workspace.CurrentCamera.CameraSubject = humanoid
+
+                    pcall(function()
+                        if LocalPlayer.Character then
+                            local PlayerModule = LocalPlayer.PlayerScripts:FindFirstChild("PlayerModule")
+                            if PlayerModule then
+                                local Controls = require(PlayerModule:FindFirstChild("ControlModule"))
+                                Controls:Enable()
+                            end
+                        end
+                    end)
+
+                    if root then
+                        root.Velocity = Vector3.new(0, 0, 0)
+                        root.RotVelocity = Vector3.new(0, 0, 0)
+                    end
+                end
+            end
+
+            -- Reactivar Motor6D desactivados
+            for _, obj in ipairs(char:GetDescendants()) do
+                if obj:IsA("Motor6D") and obj.Enabled == false then
+                    obj.Enabled = true
+                end
+            end
+        end)
     end)
-    table.insert(_antiRagdollConns, c3)
 end
 
 local function stopAntiRagdollPrime()
-    for _, c in pairs(_antiRagdollConns) do pcall(function() c:Disconnect() end) end
-    _antiRagdollConns = {}
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            for _, state in ipairs(_ragdollBadStates) do
-                pcall(function() hum:SetStateEnabled(state, true) end)
-            end
-        end
+    if _antiRagdollConn then
+        pcall(function() _antiRagdollConn:Disconnect() end)
+        _antiRagdollConn = nil
     end
 end
 
@@ -4893,98 +4788,93 @@ local function CreateRow(text, height)
     row.Parent = sList; return row
 end
 
+-- ============================================================
+-- Esfera visual "Server Pos" del sistema de desync.
+-- Se invoca con pcall(_spawnServerPosSphere) en cada activacion del desync.
+-- Setea _G._serverPosPart y _G._serverPosConn, que ya son limpiados por
+-- DeactivateDesyncForced y _desyncOnSteal_Teardown.
+-- ============================================================
+local function _spawnServerPosSphere()
+    if _G._serverPosPart and _G._serverPosPart.Parent then return end
+    local _c = LocalPlayer.Character
+    local _hrp = _c and _c:FindFirstChild("HumanoidRootPart")
+    if not _hrp then return end
+    local _part = Instance.new("Part")
+    _part.Name = "ServerPosSphere"
+    _part.Shape = Enum.PartType.Ball
+    _part.Size = Vector3.new(3.5, 3.5, 3.5)
+    _part.CFrame = CFrame.new(_hrp.Position)
+    _part.Anchored = true
+    _part.CanCollide = false
+    _part.CanQuery = false
+    _part.CanTouch = false
+    _part.Material = Enum.Material.Neon
+    _part.Color = Color3.fromRGB(255, 80, 80)
+    _part.Transparency = 0.2
+    _part.CastShadow = false
+    _part.Parent = workspace
+    local _bill = Instance.new("BillboardGui")
+    _bill.Size = UDim2.new(0, 120, 0, 32)
+    _bill.StudsOffset = Vector3.new(0, 3.5, 0)
+    _bill.AlwaysOnTop = true
+    _bill.Adornee = _part
+    _bill.Parent = _part
+    local _bg = Instance.new("Frame")
+    _bg.Size = UDim2.new(1,0,1,0)
+    _bg.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    _bg.BackgroundTransparency = 0.25
+    _bg.BorderSizePixel = 0
+    _bg.Parent = _bill
+    Instance.new("UICorner", _bg).CornerRadius = UDim.new(1,0)
+    local _lbl = Instance.new("TextLabel")
+    _lbl.Size = UDim2.new(1,0,1,0)
+    _lbl.BackgroundTransparency = 1
+    _lbl.Text = "Server Pos"
+    _lbl.TextColor3 = Color3.fromRGB(255,100,100)
+    _lbl.Font = Enum.Font.GothamBold
+    _lbl.TextSize = 13
+    _lbl.Parent = _bg
+    _G._serverPosPart = _part
+    local _prevPos = _hrp.Position
+    local _LAGBACK = 2
+    _G._serverPosConn = RunService.Heartbeat:Connect(function(dt)
+        if not _G._desyncLoopRunning then return end
+        local _c2 = LocalPlayer.Character
+        local _h2 = _c2 and _c2:FindFirstChild("HumanoidRootPart")
+        if not _h2 then return end
+        local _cur = _h2.Position
+        local _fd = (_cur - _prevPos).Magnitude
+        if _fd > (50*dt+1) and _fd > _LAGBACK then
+            if _G._serverPosPart and _G._serverPosPart.Parent then
+                _G._serverPosPart.CFrame = CFrame.new(_cur)
+            end
+        end
+        _prevPos = _cur
+    end)
+    task.spawn(function()
+        while _part and _part.Parent do
+            for i=1,8 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
+            for i=8,1,-1 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
+        end
+    end)
+end
+
 local function ActivateDesyncForced()
     if _G._desyncLoopRunning and _G._desyncOnStealHook then return true end
     _G._desyncLoopRunning = true
     _G._desyncVisualActive = true
     pcall(function()
-        if not (_G._serverPosPart and _G._serverPosPart.Parent) then
-            local _c = LocalPlayer.Character
-            local _hrp = _c and _c:FindFirstChild("HumanoidRootPart")
-            if _hrp then
-                local _part = Instance.new("Part")
-                _part.Name = "ServerPosSphere"
-                _part.Shape = Enum.PartType.Ball
-                _part.Size = Vector3.new(3.5, 3.5, 3.5)
-                _part.CFrame = CFrame.new(_hrp.Position)
-                _part.Anchored = true
-                _part.CanCollide = false
-                _part.CanQuery = false
-                _part.CanTouch = false
-                _part.Material = Enum.Material.Neon
-                _part.Color = Color3.fromRGB(255, 80, 80)
-                _part.Transparency = 0.2
-                _part.CastShadow = false
-                _part.Parent = workspace
-                local _bill = Instance.new("BillboardGui")
-                _bill.Size = UDim2.new(0, 120, 0, 32)
-                _bill.StudsOffset = Vector3.new(0, 3.5, 0)
-                _bill.AlwaysOnTop = true
-                _bill.Adornee = _part
-                _bill.Parent = _part
-                local _bg = Instance.new("Frame")
-                _bg.Size = UDim2.new(1,0,1,0)
-                _bg.BackgroundColor3 = Color3.fromRGB(20,20,20)
-                _bg.BackgroundTransparency = 0.25
-                _bg.BorderSizePixel = 0
-                _bg.Parent = _bill
-                Instance.new("UICorner", _bg).CornerRadius = UDim.new(1,0)
-                local _lbl = Instance.new("TextLabel")
-                _lbl.Size = UDim2.new(1,0,1,0)
-                _lbl.BackgroundTransparency = 1
-                _lbl.Text = "Server Pos"
-                _lbl.TextColor3 = Color3.fromRGB(255,100,100)
-                _lbl.Font = Enum.Font.GothamBold
-                _lbl.TextSize = 13
-                _lbl.Parent = _bg
-                _G._serverPosPart = _part
-                local _prevPos = _hrp.Position
-                local _LAGBACK = 2
-                _G._serverPosConn = RunService.Heartbeat:Connect(function(dt)
-                    if not _G._desyncLoopRunning then return end
-                    local _c2 = LocalPlayer.Character
-                    local _h2 = _c2 and _c2:FindFirstChild("HumanoidRootPart")
-                    if not _h2 then return end
-                    local _cur = _h2.Position
-                    local _fd = (_cur - _prevPos).Magnitude
-                    if _fd > (50*dt+1) and _fd > _LAGBACK then
-                        if _G._serverPosPart and _G._serverPosPart.Parent then
-                            _G._serverPosPart.CFrame = CFrame.new(_cur)
-                        end
-                    end
-                    _prevPos = _cur
-                end)
-                task.spawn(function()
-                    while _part and _part.Parent do
-                        for i=1,8 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
-                        for i=8,1,-1 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
-                    end
-                end)
-            end
-        end
-    end)
-    pcall(function()
         if raknet and raknet.add_send_hook and not _G._desyncOnStealHook then
             _G._desyncOnStealHook = raknet.add_send_hook(function(packet)
                 if packet.PacketId == 0x1B then
-                    local buf = packet.AsBuffer
-                    buffer.writeu32(buf, 1, 0xFFFFFFFF)
-                    buffer.writeu32(buf, 5, 0xFFFFFFFF)
-                    buffer.writeu32(buf, 9, 0xFFFFFFFF)
-                    packet:SetData(buf)
+                    local data = packet.AsBuffer
+                    buffer.writeu32(data, 1, 0xFFFFFFFF)
+                    packet:SetData(data)
                 end
             end)
         end
     end)
-    pcall(function()
-        if raknet and raknet.add_recv_hook and not _G._desyncRecvHook then
-            _G._desyncRecvHook = raknet.add_recv_hook(function(packet)
-                if packet.PacketId == 0x1B or packet.PacketId == 0x86 or packet.PacketId == 0x83 or packet.PacketId == 0x85 then
-                    packet:Drop()
-                end
-            end)
-        end
-    end)
+    pcall(_spawnServerPosSphere)
     return true
 end
 
@@ -5657,6 +5547,13 @@ do
         SaveConfig()
         ShowNotification("DESYNC ON LOAD", ns and "ENABLED" or "DISABLED")
     end)
+    local rResetOnDesyncLoad = CreateRow("Reset on Desync on Load")
+    CreateToggleSwitch(rResetOnDesyncLoad, Config.ResetOnDesyncLoad, function(ns, set)
+        set(ns); Config.ResetOnDesyncLoad = ns; SaveConfig()
+        ShowNotification("RESET ON DESYNC LOAD",
+            ns and "Hara fast reset + 0.25s antes de activar el desync"
+                or "DISABLED")
+    end)
     local rForceDesync = CreateRow("Force Desync")
     local forceDesyncBtn = Instance.new("TextButton", rForceDesync)
     forceDesyncBtn.Size = UDim2.new(0, 100, 0, 24)
@@ -6306,94 +6203,29 @@ end
 
 if Config.DesyncOnLoad then
     task.spawn(function()
-        task.wait(2)
+        if Config.ResetOnDesyncLoad then
+            -- Fast reset (te tira a Y=15000 -> mueres -> respawn en base)
+            -- y 0.25s despues activa el desync para que arranque desde la base.
+            pcall(executeReset)
+            task.wait(0.25)
+        else
+            task.wait(2)
+        end
         if not _G._desyncLoopRunning then
             _G._desyncLoopRunning = true
             _G._desyncVisualActive = true
             pcall(function()
-                if _G._serverPosPart and _G._serverPosPart.Parent then return end
-                local _c = LocalPlayer.Character
-                local _hrp = _c and _c:FindFirstChild("HumanoidRootPart")
-                if not _hrp then return end
-                local _part = Instance.new("Part")
-                _part.Name = "ServerPosSphere"
-                _part.Shape = Enum.PartType.Ball
-                _part.Size = Vector3.new(3.5, 3.5, 3.5)
-                _part.CFrame = CFrame.new(_hrp.Position)
-                _part.Anchored = true
-                _part.CanCollide = false
-                _part.CanQuery = false
-                _part.CanTouch = false
-                _part.Material = Enum.Material.Neon
-                _part.Color = Color3.fromRGB(255, 80, 80)
-                _part.Transparency = 0.2
-                _part.CastShadow = false
-                _part.Parent = workspace
-                local _bill = Instance.new("BillboardGui")
-                _bill.Size = UDim2.new(0, 120, 0, 32)
-                _bill.StudsOffset = Vector3.new(0, 3.5, 0)
-                _bill.AlwaysOnTop = true
-                _bill.Adornee = _part
-                _bill.Parent = _part
-                local _bg = Instance.new("Frame")
-                _bg.Size = UDim2.new(1,0,1,0)
-                _bg.BackgroundColor3 = Color3.fromRGB(20,20,20)
-                _bg.BackgroundTransparency = 0.25
-                _bg.BorderSizePixel = 0
-                _bg.Parent = _bill
-                Instance.new("UICorner", _bg).CornerRadius = UDim.new(1,0)
-                local _lbl = Instance.new("TextLabel")
-                _lbl.Size = UDim2.new(1,0,1,0)
-                _lbl.BackgroundTransparency = 1
-                _lbl.Text = "Server Pos"
-                _lbl.TextColor3 = Color3.fromRGB(255,100,100)
-                _lbl.Font = Enum.Font.GothamBold
-                _lbl.TextSize = 13
-                _lbl.Parent = _bg
-                _G._serverPosPart = _part
-                local _prevPos = _hrp.Position
-                local _LAGBACK = 2
-                _G._serverPosConn = RunService.Heartbeat:Connect(function(dt)
-                    if not _G._desyncLoopRunning then return end
-                    local _c2 = LocalPlayer.Character
-                    local _h2 = _c2 and _c2:FindFirstChild("HumanoidRootPart")
-                    if not _h2 then return end
-                    local _cur = _h2.Position
-                    local _fd = (_cur - _prevPos).Magnitude
-                    if _fd > (50*dt+1) and _fd > _LAGBACK then
-                        if _G._serverPosPart and _G._serverPosPart.Parent then
-                            _G._serverPosPart.CFrame = CFrame.new(_cur)
-                        end
-                    end
-                    _prevPos = _cur
-                end)
-                task.spawn(function()
-                    while _part and _part.Parent do
-                        for i=1,8 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
-                        for i=8,1,-1 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
-                    end
-                end)
-            end)
-            pcall(function()
                 if raknet and raknet.add_send_hook and not _G._desyncOnStealHook then
                     _G._desyncOnStealHook = raknet.add_send_hook(function(packet)
                         if packet.PacketId == 0x1B then
-                            local buf = packet.AsBuffer
-                            buffer.writeu32(buf, 1, 0xFFFFFFFF)
-                            buffer.writeu32(buf, 5, 0xFFFFFFFF)
-                            buffer.writeu32(buf, 9, 0xFFFFFFFF)
-                            packet:SetData(buf)
-                        end
-                    end)
-                end
-                if raknet and raknet.add_recv_hook and not _G._desyncRecvHook then
-                    _G._desyncRecvHook = raknet.add_recv_hook(function(packet)
-                        if packet.PacketId == 0x1B or packet.PacketId == 0x86 or packet.PacketId == 0x83 or packet.PacketId == 0x85 then
-                            packet:Drop()
+                            local data = packet.AsBuffer
+                            buffer.writeu32(data, 1, 0xFFFFFFFF)
+                            packet:SetData(data)
                         end
                     end)
                 end
             end)
+            pcall(_spawnServerPosSphere)
             ShowNotification("DESYNC ON LOAD", "Desync activated automatically")
         end
     end)
@@ -6432,105 +6264,40 @@ local function _desyncOnSteal_Teardown()
     end
 end
 
--- Desync on Load: desactivar temporalmente al morir/respawnear y reactivar tras 1.5s
+-- Desync on Load: mantener SIEMPRE activo, no desactivar al morir / respawnear / nada.
+-- Los hooks de raknet (send_hook) son globales y persisten a traves de la muerte
+-- del personaje, asi que NO los desmontamos. Solo nos aseguramos de que las flags
+-- globales sigan en true y que la esfera visual exista (re-spawneandola si por
+-- alguna razon fue destruida con el workspace).
 if Config.DesyncOnLoad then
-    local function _desyncOnLoad_Reactivate()
+    local function _desyncOnLoad_EnsureAlive()
         if not Config.DesyncOnLoad then return end
-        if _G._desyncLoopRunning then return end
         _G._desyncLoopRunning = true
         _G._desyncVisualActive = true
+        -- Reinstalar el send_hook solo si no existe (nunca lo quitamos al morir,
+        -- pero por si algun otro flujo lo limpio, lo dejamos defensivo).
         pcall(function()
-            if _G._serverPosPart and _G._serverPosPart.Parent then return end
-            local _c = LocalPlayer.Character
-            local _hrp = _c and _c:FindFirstChild("HumanoidRootPart")
-            if not _hrp then return end
-            local _part = Instance.new("Part")
-            _part.Name = "ServerPosSphere"
-            _part.Shape = Enum.PartType.Ball
-            _part.Size = Vector3.new(3.5, 3.5, 3.5)
-            _part.CFrame = CFrame.new(_hrp.Position)
-            _part.Anchored = true
-            _part.CanCollide = false
-            _part.CanQuery = false
-            _part.CanTouch = false
-            _part.Material = Enum.Material.Neon
-            _part.Color = Color3.fromRGB(255, 80, 80)
-            _part.Transparency = 0.2
-            _part.CastShadow = false
-            _part.Parent = workspace
-            local _bill = Instance.new("BillboardGui")
-            _bill.Size = UDim2.new(0, 120, 0, 32)
-            _bill.StudsOffset = Vector3.new(0, 3.5, 0)
-            _bill.AlwaysOnTop = true
-            _bill.Adornee = _part
-            _bill.Parent = _part
-            local _bg = Instance.new("Frame")
-            _bg.Size = UDim2.new(1,0,1,0)
-            _bg.BackgroundColor3 = Color3.fromRGB(20,20,20)
-            _bg.BackgroundTransparency = 0.25
-            _bg.BorderSizePixel = 0
-            _bg.Parent = _bill
-            Instance.new("UICorner", _bg).CornerRadius = UDim.new(1,0)
-            local _lbl = Instance.new("TextLabel")
-            _lbl.Size = UDim2.new(1,0,1,0)
-            _lbl.BackgroundTransparency = 1
-            _lbl.Text = "Server Pos"
-            _lbl.TextColor3 = Color3.fromRGB(255,100,100)
-            _lbl.Font = Enum.Font.GothamBold
-            _lbl.TextSize = 13
-            _lbl.Parent = _bg
-            _G._serverPosPart = _part
-            local _prevPos = _hrp.Position
-            local _LAGBACK = 2
-            _G._serverPosConn = RunService.Heartbeat:Connect(function(dt)
-                if not _G._desyncLoopRunning then return end
-                local _c2 = LocalPlayer.Character
-                local _h2 = _c2 and _c2:FindFirstChild("HumanoidRootPart")
-                if not _h2 then return end
-                local _cur = _h2.Position
-                local _fd = (_cur - _prevPos).Magnitude
-                if _fd > (50*dt+1) and _fd > _LAGBACK then
-                    if _G._serverPosPart and _G._serverPosPart.Parent then
-                        _G._serverPosPart.CFrame = CFrame.new(_cur)
+            if raknet and raknet.add_send_hook and not _G._desyncOnStealHook then
+                _G._desyncOnStealHook = raknet.add_send_hook(function(packet)
+                    if packet.PacketId == 0x1B then
+                        local data = packet.AsBuffer
+                        buffer.writeu32(data, 1, 0xFFFFFFFF)
+                        packet:SetData(data)
                     end
-                end
-                _prevPos = _cur
-            end)
-            task.spawn(function()
-                while _part and _part.Parent do
-                    for i=1,8 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
-                    for i=8,1,-1 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
-                end
-            end)
-            pcall(function()
-                if raknet and raknet.add_send_hook and not _G._desyncOnStealHook then
-                    _G._desyncOnStealHook = raknet.add_send_hook(function(packet)
-                        if packet.PacketId == 0x1B then
-                            local buf = packet.AsBuffer
-                            buffer.writeu32(buf, 1, 0xFFFFFFFF)
-                            buffer.writeu32(buf, 5, 0xFFFFFFFF)
-                            buffer.writeu32(buf, 9, 0xFFFFFFFF)
-                            packet:SetData(buf)
-                        end
-                    end)
-                end
-                if raknet and raknet.add_recv_hook and not _G._desyncRecvHook then
-                    _G._desyncRecvHook = raknet.add_recv_hook(function(packet)
-                        if packet.PacketId == 0x1B or packet.PacketId == 0x86 or packet.PacketId == 0x83 or packet.PacketId == 0x85 then
-                            packet:Drop()
-                        end
-                    end)
-                end
-            end)
-            ShowNotification("DESYNC ON LOAD", "Desync reactivado tras respawn")
+                end)
+            end
         end)
+        if not (_G._serverPosPart and _G._serverPosPart.Parent) then
+            pcall(_spawnServerPosSphere)
+        end
     end
 
     LocalPlayer.CharacterAdded:Connect(function()
         if not Config.DesyncOnLoad then return end
-        _desyncOnSteal_Teardown()
-        task.wait(1.5)
-        _desyncOnLoad_Reactivate()
+        -- Esperar a que el HumanoidRootPart del nuevo char este listo para
+        -- que _spawnServerPosSphere pueda anclarse si hace falta.
+        task.wait(0.3)
+        _desyncOnLoad_EnsureAlive()
     end)
 end
 
@@ -6556,99 +6323,18 @@ LocalPlayer:GetAttributeChangedSignal("Stealing"):Connect(function()
                 if raknet and raknet.add_send_hook then
                     _G._desyncOnStealHook = raknet.add_send_hook(function(packet)
                         if packet.PacketId == 0x1B then
-                            local buf = packet.AsBuffer
-                            buffer.writeu32(buf, 1, 0xFFFFFFFF)
-                            buffer.writeu32(buf, 5, 0xFFFFFFFF)
-                            buffer.writeu32(buf, 9, 0xFFFFFFFF)
-                            packet:SetData(buf)
+                            local data = packet.AsBuffer
+                            buffer.writeu32(data, 1, 0xFFFFFFFF)
+                            packet:SetData(data)
                         end
                     end)
                 end
             end)
 
-            -- Delay the recv hook by 1 second: the server needs to receive
-            -- several corrupted position packets first so it moves our
-            -- ghost position far enough before we start dropping its
-            -- corrections. Installing recv too early cancels that process.
-            local _tokenAtStart = _desyncDeactivateToken
-            task.delay(1, function()
-                if not _G._desyncLoopRunning then return end
-                if _desyncDeactivateToken ~= _tokenAtStart then return end
-                pcall(function()
-                    if raknet and raknet.add_recv_hook and not _G._desyncRecvHook then
-                        _G._desyncRecvHook = raknet.add_recv_hook(function(packet)
-                            if packet.PacketId == 0x1B or packet.PacketId == 0x86 or packet.PacketId == 0x83 or packet.PacketId == 0x85 then
-                                packet:Drop()
-                            end
-                        end)
-                    end
-                end)
-            end)
+            -- (recv_hook eliminado: la version simple solo necesita el send_hook)
 
-            -- Server position indicator sphere
-            pcall(function()
-                local _c = LocalPlayer.Character
-                local _hrp = _c and _c:FindFirstChild("HumanoidRootPart")
-                if not _hrp then return end
-                local _part = Instance.new("Part")
-                _part.Name = "ServerPosSphere"
-                _part.Shape = Enum.PartType.Ball
-                _part.Size = Vector3.new(3.5, 3.5, 3.5)
-                _part.CFrame = CFrame.new(_hrp.Position)
-                _part.Anchored = true
-                _part.CanCollide = false
-                _part.CanQuery = false
-                _part.CanTouch = false
-                _part.Material = Enum.Material.Neon
-                _part.Color = Color3.fromRGB(255, 80, 80)
-                _part.Transparency = 0.2
-                _part.CastShadow = false
-                _part.Parent = workspace
-                local _bill = Instance.new("BillboardGui")
-                _bill.Size = UDim2.new(0, 120, 0, 32)
-                _bill.StudsOffset = Vector3.new(0, 3.5, 0)
-                _bill.AlwaysOnTop = true
-                _bill.Adornee = _part
-                _bill.Parent = _part
-                local _bg = Instance.new("Frame")
-                _bg.Size = UDim2.new(1,0,1,0)
-                _bg.BackgroundColor3 = Color3.fromRGB(20,20,20)
-                _bg.BackgroundTransparency = 0.25
-                _bg.BorderSizePixel = 0
-                _bg.Parent = _bill
-                Instance.new("UICorner", _bg).CornerRadius = UDim.new(1,0)
-                local _lbl = Instance.new("TextLabel")
-                _lbl.Size = UDim2.new(1,0,1,0)
-                _lbl.BackgroundTransparency = 1
-                _lbl.Text = "Server Pos"
-                _lbl.TextColor3 = Color3.fromRGB(255,100,100)
-                _lbl.Font = Enum.Font.GothamBold
-                _lbl.TextSize = 13
-                _lbl.Parent = _bg
-                _G._serverPosPart = _part
-                local _prevPos = _hrp.Position
-                local _LAGBACK = 2
-                _G._serverPosConn = RunService.Heartbeat:Connect(function(dt)
-                    if not _G._desyncLoopRunning then return end
-                    local _c2 = LocalPlayer.Character
-                    local _h2 = _c2 and _c2:FindFirstChild("HumanoidRootPart")
-                    if not _h2 then return end
-                    local _cur = _h2.Position
-                    local _fd = (_cur - _prevPos).Magnitude
-                    if _fd > (50*dt+1) and _fd > _LAGBACK then
-                        if _G._serverPosPart and _G._serverPosPart.Parent then
-                            _G._serverPosPart.CFrame = CFrame.new(_cur)
-                        end
-                    end
-                    _prevPos = _cur
-                end)
-                task.spawn(function()
-                    while _part and _part.Parent do
-                        for i=1,8 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
-                        for i=8,1,-1 do if not(_part and _part.Parent) then break end; _part.Transparency=0.1+(i/8)*0.5; task.wait(0.07) end
-                    end
-                end)
-            end)
+            -- Esfera visual "Server Pos"
+            pcall(_spawnServerPosSphere)
         end
     else
         if Config.DesyncOnLoad then return end
@@ -7936,17 +7622,16 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- LASER CAPE AIMBOT
--- Gateado: solo se instala si Config.LaserCapeAimbot esta en true.
--- Esto evita que detectLaserStrategy lea .Source (BAC-2517).
+-- LASER CAPE AIMBOT (logica portada del Sahur Hub Duelos)
+-- Version simple: nearest player + RE/UseItem(pos, HRP) directo.
+-- Sigue gateado por Config.LaserCapeAimbot.
 -- ============================================================
 task.spawn(function()
-    if not Config.LaserCapeAimbot then return end
     local function getNearestPlayerHRP()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return nil end
-        local closestHRP, best = nil, math.huge
+        if not hrp then return nil, nil end
+        local closest, closestHRP, best = nil, nil, math.huge
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer then
                 local c = p.Character
@@ -7955,93 +7640,42 @@ task.spawn(function()
                     local hum = c:FindFirstChildOfClass("Humanoid")
                     if h and hum and hum.Health > 0 then
                         local d = (hrp.Position - h.Position).Magnitude
-                        if d < best then best = d; closestHRP = h end
+                        if d < best then best = d; closest = p; closestHRP = h end
                     end
                 end
             end
         end
-        return closestHRP
+        return closest, closestHRP
     end
-
-    -- Detectar cual estrategia funciona en este servidor
-    -- Algunos servidores usan (Vector3, BasePart), otros usan solo Vector3
-    local laserStrategy = nil -- nil = sin detectar, 1 = con Target, 2 = solo posicion
 
     local function fireUseItemAtTarget(targetHRP)
         pcall(function()
-            local remote = Utility:LarpNet("RE/UseItem")
-            if not remote then return end
-
-            local hitPos = targetHRP.Position
-
-            -- Mover el mouse virtualmente hacia el target antes de disparar
-            -- Esto hace que aunque el servidor ignore Target, use la posicion correcta
-            local camera = workspace.CurrentCamera
-            local screenPos, onScreen = camera:WorldToScreenPoint(hitPos)
-
-            -- Intentar mover el mouse al target (funciona en algunos executors)
-            pcall(function()
-                if VirtualInputManager then
-                    VirtualInputManager:SendMouseMoveEvent(
-                        math.floor(screenPos.X),
-                        math.floor(screenPos.Y),
-                        game
-                    )
+            local netFolder = ReplicatedStorage:FindFirstChild("Packages")
+                             and ReplicatedStorage.Packages:FindFirstChild("Net")
+            if not netFolder then return end
+            local children = netFolder:GetChildren()
+            for i = 1, #children do
+                if children[i].Name == "RE/UseItem" and children[i + 1] then
+                    children[i + 1]:FireServer(targetHRP.Position, targetHRP)
+                    break
                 end
-            end)
-
-            if laserStrategy == 1 then
-                -- Estrategia 1: con Target (BasePart) como segundo argumento
-                remote:FireServer(hitPos, targetHRP)
-
-            elseif laserStrategy == 2 then
-                -- Estrategia 2: solo posicion Vector3 sin Target
-                remote:FireServer(hitPos)
-
-            else
-                -- Sin estrategia detectada: intentar ambas
-                -- Primero intentar con Target
-                local ok1 = pcall(function()
-                    remote:FireServer(hitPos, targetHRP)
-                end)
-                -- Esperar un tick y tambien disparar solo con posicion como fallback
-                task.delay(0.05, function()
-                    pcall(function()
-                        remote:FireServer(hitPos)
-                    end)
-                end)
             end
         end)
-    end
-
-    -- Funcion para detectar automaticamente la estrategia segun si el laser golpea
-    -- Se hace hook del LocalScript de la Laser Cape para leer como llama al remote original
-    local function detectLaserStrategy(tool)
-        -- IMPORTANTE: NO leer .Source del LocalScript del tool. Acceder al source
-        -- de scripts cerrados del juego es una de las heuristicas tipicas del
-        -- anticheat (codigo BAC-2517). Dejamos laserStrategy=nil para que se
-        -- use siempre el modo dual (probar ambas firmas en runtime).
-        laserStrategy = nil
     end
 
     local hookedLaserCapes = {}
     local function hookLaserCape(tool)
         if hookedLaserCapes[tool] then return end
         hookedLaserCapes[tool] = true
-        detectLaserStrategy(tool)
         tool.Activated:Connect(function()
             if not Config.LaserCapeAimbot then return end
-            local targetHRP = getNearestPlayerHRP()
-            if not targetHRP then return end
-
-            -- Bloquear el disparo original para reemplazarlo con el nuestro
-            -- (interceptar antes de que el cliente use la posicion del cursor)
-            fireUseItemAtTarget(targetHRP)
+            local _, targetHRP = getNearestPlayerHRP()
+            if targetHRP then fireUseItemAtTarget(targetHRP) end
         end)
         tool.AncestryChanged:Connect(function() hookedLaserCapes[tool] = nil end)
     end
 
-    local function watchContainer(container)
+    local function watchForLaserCape(container)
         for _, t in ipairs(container:GetChildren()) do
             if t.Name == "Laser Cape" then hookLaserCape(t) end
         end
@@ -8050,11 +7684,9 @@ task.spawn(function()
         end)
     end
 
-    watchContainer(LocalPlayer.Backpack)
+    watchForLaserCape(LocalPlayer.Backpack)
     LocalPlayer.CharacterAdded:Connect(function(char)
-        -- Re-watchear el Backpack al respawnear (se vacia y repopulea)
-        laserStrategy = nil -- Resetear estrategia al respawnear (puede cambiar de server)
-        watchContainer(LocalPlayer.Backpack)
+        watchForLaserCape(LocalPlayer.Backpack)
         char.ChildAdded:Connect(function(t)
             if t.Name == "Laser Cape" then hookLaserCape(t) end
         end)
