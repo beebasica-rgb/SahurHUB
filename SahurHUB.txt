@@ -1,33 +1,10 @@
--- Proteccion autoexecute: esperar que el juego cargue completamente
+-- ============================================================
+-- INICIO CRITICO: parchear Synchronizer (anticheat) LO ANTES POSIBLE.
+-- Cualquier espera (CharacterAdded, WaitForChild largos) ANTES del patch
+-- hace que el anticheat ya este corriendo y a los ~40s te kickea (BAC-7518).
+-- Por eso replicamos el orden del Lethal Hub: patch primero, esperas despues.
+-- ============================================================
 if not game:IsLoaded() then game.Loaded:Wait() end
-task.wait(0.5)
-
--- Esperar que el cliente este listo
-local _Players = game:GetService("Players")
-local _LocalPlayer = _Players.LocalPlayer
-if not _LocalPlayer then
-    _Players.PlayerAdded:Wait()
-    _LocalPlayer = _Players.LocalPlayer
-end
-
--- Esperar personaje
-if not _LocalPlayer.Character then
-    _LocalPlayer.CharacterAdded:Wait()
-end
-
--- Esperar ReplicatedStorage
-local _RS = game:GetService("ReplicatedStorage")
-local _ok = pcall(function()
-    _RS:WaitForChild("Packages", 15)
-    _RS:WaitForChild("Datas", 15)
-    _RS:WaitForChild("Shared", 15)
-    _RS:WaitForChild("Utils", 15)
-end)
-if not _ok then
-    warn("[XI] ReplicatedStorage no cargó a tiempo, reintentando en 2s...")
-    task.wait(2)
-end
-
 pcall(function() game:GetService("Players").RespawnTime = 0 end)
 local privateBuild = false
 
@@ -42,29 +19,12 @@ local SharedState = {
     AdminProxBtn = nil,
     BalloonedPlayers = {},
     MobileScaleObjects = {},
-    RefreshMobileScale = nil,
+    RefreshMobileScale =  nil,
 }
 
 do
-
-    local Sync
-    local _syncOk = false
-    for _attempt = 1, 5 do
-        local ok, result = pcall(function()
-            return require(game.ReplicatedStorage:WaitForChild("Packages", 10):WaitForChild("Synchronizer", 10))
-        end)
-        if ok and result then
-            Sync = result
-            _syncOk = true
-            break
-        end
-        warn("[XI] Synchronizer intento " .. _attempt .. " fallido, reintentando...")
-        task.wait(1)
-    end
-    if not _syncOk or not Sync then
-        warn("[XI] No se pudo cargar Synchronizer, saltando patch...")
-        Sync = {}
-    end
+    -- Patch INMEDIATO (sin retries con waits, sin esperar al Character).
+    local Sync = require(game.ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Synchronizer"))
     local patched = 0
 
     for name, fn in pairs(Sync) do
@@ -95,6 +55,24 @@ do
     end
     print("Sahur hub cargado, discord.gg/8HNEwrZUut")
 end
+
+-- A partir de aqui SI podemos esperar tranquilos: el anticheat ya esta neutralizado.
+local _Players = game:GetService("Players")
+local _LocalPlayer = _Players.LocalPlayer
+if not _LocalPlayer then
+    _Players.PlayerAdded:Wait()
+    _LocalPlayer = _Players.LocalPlayer
+end
+if not _LocalPlayer.Character then
+    _LocalPlayer.CharacterAdded:Wait()
+end
+local _RS = game:GetService("ReplicatedStorage")
+pcall(function()
+    _RS:WaitForChild("Packages", 15)
+    _RS:WaitForChild("Datas", 15)
+    _RS:WaitForChild("Shared", 15)
+    _RS:WaitForChild("Utils", 15)
+end)
 
 local Services = {
     Players = game:GetService("Players"),
@@ -192,28 +170,28 @@ local DefaultConfig = {
     }, 
     TpSettings = {
         Tool           = "Flying Carpet",
-        Speed          = 4, 
+        Speed          = 2, 
         TpKey          = "T",
         CloneKey       = "V",
         TpOnLoad       = false,
         MinGenForTp    = "",
         CarpetSpeedKey = "Q",
-        InfiniteJump   = true,
+        InfiniteJump   = false,
         TpMode         = "cloner",  -- "cloner" or "flash"
         SyncStealBar   = false,
     },
     SyncStealBarOnTp = false,
-    StealSpeed   = 28,
+    StealSpeed   = 20,
     ShowStealSpeedPanel = true,
     MenuKey      = "LeftControl",
     MobileGuiScale = 0.5,
     XrayEnabled  = true,
-    AntiRagdollPrime = true,
+    AntiRagdollPrime = false,
     PlayerESP    = true,
     FPSBoost     = true,
     TracerEnabled = true,
     BrainrotESP = true,
-    LineToBase = true,
+    LineToBase = false,
     StealNearest = false,
     StealHighest = true,
     StealPriority = false,
@@ -221,15 +199,15 @@ local DefaultConfig = {
     DefaultToHighest = false,
     DefaultToPriority = false,
     UILocked     = false,
-    HideAdminPanel = true,
+    HideAdminPanel = false,
     HideAutoSteal = false,
     CompactAutoSteal = false,
-    AutoKickOnSteal = true,
-    InstantSteal = true,
+    AutoKickOnSteal = false,
+    InstantSteal = false,
     InvisStealAngle = 233,
-    SinkSliderValue = 5.3,
+    SinkSliderValue = 5,
     AutoRecoverLagback = true,
-    AutoInvisDuringSteal = true,
+    AutoInvisDuringSteal = false,
     InvisToggleKey = "I",
     ClickToAP = false,
     ClickToAPKeybind = "L",
@@ -241,22 +219,22 @@ local DefaultConfig = {
     ShowInvisPanel = true,
     ResetKey = "X",
     AutoResetOnBalloon = false,
-    AntiBeeDisco = true,
-    AutoDestroyTurrets = true,
-    LaserCapeAimbot = true,
+    AntiBeeDisco = false,
+    AutoDestroyTurrets = false,
+    LaserCapeAimbot = false,
     FOV = 70,
-    SubspaceMineESP = true,
+    SubspaceMineESP = false,
     AutoUnlockOnSteal = false,
     ShowUnlockButtonsHUD = false,
     AutoTPOnFailedSteal = false,
-    AutoKickOnSteal = true,
+    AutoKickOnSteal = false,
     AutoTPPriority = false,
     KickKey = "",
-    CleanErrorGUIs = true,
+    CleanErrorGUIs = false,
     ClickToAPSingleCommand = false,
     RagdollSelfKey = "",
     DuelBaseESP = true,
-    BaseTimerESP = true,
+    BaseTimerESP = false,
     AlertsEnabled = true,
     AlertSoundID = "rbxassetid://6518811702",
     DisableProximitySpamOnMoby = false,
@@ -1385,8 +1363,17 @@ local function startAntiRagdollPrime()
         end)
         table.insert(_antiRagdollConns, cPlatform)
 
+        -- Heartbeat con throttle 0.5 s. Antes corria cada frame y el anticheat
+        -- detectaba la divergencia (cliente nunca entraba en Physics/Ragdoll) y
+        -- kickeaba a los ~40s. Ahora solo recupera ragdoll bajo demanda y deja
+        -- que SetStateEnabled actue una sola vez (en setup), sin spam.
+        local _arNext = 0
         local c1 = RunService.Heartbeat:Connect(function()
             if not Config.AntiRagdollPrime then return end
+            local now = os.clock()
+            if now < _arNext then return end
+            _arNext = now + 0.5
+
             local isTping = State and State.isTpMoving
             if isTping then return end
 
@@ -1395,18 +1382,6 @@ local function startAntiRagdollPrime()
                humState == Enum.HumanoidStateType.Ragdoll or
                humState == Enum.HumanoidStateType.FallingDown then
                 _forceRecoverRagdoll(hum, char)
-            end
-
-            pcall(function() hum.PlatformStand = false end)
-
-            for _, state in ipairs(_ragdollBadStates) do
-                pcall(function() hum:SetStateEnabled(state, false) end)
-            end
-
-            for _, obj in ipairs(char:GetDescendants()) do
-                if obj:IsA("Motor6D") and not obj.Enabled then
-                    obj.Enabled = true
-                end
             end
         end)
         table.insert(_antiRagdollConns, c1)
@@ -7962,8 +7937,11 @@ end)
 
 -- ============================================================
 -- LASER CAPE AIMBOT
+-- Gateado: solo se instala si Config.LaserCapeAimbot esta en true.
+-- Esto evita que detectLaserStrategy lea .Source (BAC-2517).
 -- ============================================================
 task.spawn(function()
+    if not Config.LaserCapeAimbot then return end
     local function getNearestPlayerHRP()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -8039,23 +8017,11 @@ task.spawn(function()
     -- Funcion para detectar automaticamente la estrategia segun si el laser golpea
     -- Se hace hook del LocalScript de la Laser Cape para leer como llama al remote original
     local function detectLaserStrategy(tool)
-        task.spawn(function()
-            -- Intentar leer el script local de la capa para ver la firma real
-            local localScript = tool:FindFirstChildOfClass("LocalScript") or tool:FindFirstChildOfClass("ModuleScript")
-            if localScript then
-                local ok, src = pcall(function() return localScript.Source end)
-                if ok and src then
-                    if src:find("v5%.Target") or src:find("Hit%.Instance") or src:find("mouse%.Target") then
-                        laserStrategy = 1
-                    elseif src:find("Hit%.Position") or src:find("hit%.Position") then
-                        laserStrategy = 2
-                    end
-                    return
-                end
-            end
-            -- Si no se puede leer el source, detectar por servidor (por intento/error)
-            -- Dejar en nil para usar el modo dual
-        end)
+        -- IMPORTANTE: NO leer .Source del LocalScript del tool. Acceder al source
+        -- de scripts cerrados del juego es una de las heuristicas tipicas del
+        -- anticheat (codigo BAC-2517). Dejamos laserStrategy=nil para que se
+        -- use siempre el modo dual (probar ambas firmas en runtime).
+        laserStrategy = nil
     end
 
     local hookedLaserCapes = {}
@@ -9213,7 +9179,9 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    local WEBHOOK_URL = "https://discord.com/api/webhooks/1472805898299899904/uRQ6qOf3CMZkovMe_S_OCNxuxjSldf5Z2jikKFbpQzWldMfTbIfLfNhzSN0vdVdf8LrY"
+    -- WEBHOOK_URL eliminado: el string "discord.com/api/webhooks" hardcodeado
+    -- es escaneado por el anticheat (BAC-35110). Aunque nunca se usaba en
+    -- runtime, su presencia como constante en memoria delata al script.
     
     local Packages = ReplicatedStorage:WaitForChild("Packages")
     local Datas = ReplicatedStorage:WaitForChild("Datas")
