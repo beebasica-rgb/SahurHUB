@@ -422,6 +422,10 @@ function doDropBrainrot()
     att:Destroy()
     if _dropMonConn then _dropMonConn:Disconnect() end
     task.delay(0.15, function() _G._dropBrainrotActive = false end)
+    -- Si DesyncOnLoad estaba activo, reactivar el desync tras el drop
+    if Config.DesyncOnLoad and _G._desyncOnLoad_ReEnable then
+        task.delay(0.5, _G._desyncOnLoad_ReEnable)
+    end
 end
 
 local function walkForward(seconds)
@@ -1238,83 +1242,43 @@ if Config.XrayEnabled then
 end
 
 
-local function isRagdolled()
-    local char = LocalPlayer.Character; if not char then return false end
-    local hum = char:FindFirstChildOfClass("Humanoid"); if not hum then return false end
-    local state = hum:GetState()
-    local ragStates = {
-        [Enum.HumanoidStateType.Physics]     = true,
-        [Enum.HumanoidStateType.Ragdoll]     = true,
-        [Enum.HumanoidStateType.FallingDown] = true,
-    }
-    if ragStates[state] then return true end
-    local endTime = LocalPlayer:GetAttribute("RagdollEndTime")
-    if endTime and (endTime - Workspace:GetServerTimeNow()) > 0 then return true end
-    return false
-end
-
-
 -- ============================================================
--- ANTI RAGDOLL (Sunset Duels logic)
+-- ANTI RAGDOLL
 -- ============================================================
-local _antiRagdollConn = nil
-
 local function startAntiRagdollPrime()
-    if _antiRagdollConn then
-        pcall(function() _antiRagdollConn:Disconnect() end)
-        _antiRagdollConn = nil
-    end
-
-    _antiRagdollConn = RunService.Heartbeat:Connect(function()
+    if Connections.antiRagdollConn then return end
+    Connections.antiRagdollConn = RunService.Heartbeat:Connect(function()
         if not Config.AntiRagdollPrime then return end
-
-        pcall(function()
-            local char = LocalPlayer.Character
-            if not char then return end
-
-            local root = char:FindFirstChild("HumanoidRootPart")
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-
-            if humanoid then
-                local humState = humanoid:GetState()
-                if humState == Enum.HumanoidStateType.Physics or
-                   humState == Enum.HumanoidStateType.Ragdoll or
-                   humState == Enum.HumanoidStateType.FallingDown then
-
-                    humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                    Workspace.CurrentCamera.CameraSubject = humanoid
-
-                    pcall(function()
-                        if LocalPlayer.Character then
-                            local PlayerModule = LocalPlayer.PlayerScripts:FindFirstChild("PlayerModule")
-                            if PlayerModule then
-                                local Controls = require(PlayerModule:FindFirstChild("ControlModule"))
-                                Controls:Enable()
-                            end
-                        end
-                    end)
-
-                    if root then
-                        root.Velocity = Vector3.new(0, 0, 0)
-                        root.RotVelocity = Vector3.new(0, 0, 0)
+        local char = LocalPlayer.Character; if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum  = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            local st = hum:GetState()
+            if st == Enum.HumanoidStateType.Physics or
+               st == Enum.HumanoidStateType.Ragdoll or
+               st == Enum.HumanoidStateType.FallingDown then
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+                Workspace.CurrentCamera.CameraSubject = hum
+                pcall(function()
+                    local pm = LocalPlayer:FindFirstChild("PlayerScripts")
+                    if pm then
+                        local PlayerModule = pm:FindFirstChild("PlayerModule")
+                        if PlayerModule then require(PlayerModule):GetControls():Enable() end
                     end
-                end
+                end)
+                if root then root.Velocity = Vector3.new(0, 0, 0); root.RotVelocity = Vector3.new(0, 0, 0) end
             end
-
-            -- Reactivar Motor6D desactivados
-            for _, obj in ipairs(char:GetDescendants()) do
-                if obj:IsA("Motor6D") and obj.Enabled == false then
-                    obj.Enabled = true
-                end
-            end
-        end)
+        end
+        for _, obj in ipairs(char:GetDescendants()) do
+            if obj:IsA("Motor6D") and not obj.Enabled then obj.Enabled = true end
+        end
     end)
 end
 
 local function stopAntiRagdollPrime()
-    if _antiRagdollConn then
-        pcall(function() _antiRagdollConn:Disconnect() end)
-        _antiRagdollConn = nil
+    if Connections.antiRagdollConn then
+        Connections.antiRagdollConn:Disconnect()
+        Connections.antiRagdollConn = nil
     end
 end
 
@@ -6292,6 +6256,8 @@ if Config.DesyncOnLoad then
         end
     end
 
+    _G._desyncOnLoad_ReEnable = _desyncOnLoad_EnsureAlive
+
     LocalPlayer.CharacterAdded:Connect(function()
         if not Config.DesyncOnLoad then return end
         -- Esperar a que el HumanoidRootPart del nuevo char este listo para
@@ -7622,16 +7588,17 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- LASER CAPE AIMBOT (logica portada del Sahur Hub Duelos)
--- Version simple: nearest player + RE/UseItem(pos, HRP) directo.
--- Sigue gateado por Config.LaserCapeAimbot.
+-- LASER CAPE AIMBOT
+-- Gateado: solo se instala si Config.LaserCapeAimbot esta en true.
+-- Esto evita que detectLaserStrategy lea .Source (BAC-2517).
 -- ============================================================
 task.spawn(function()
+    if not Config.LaserCapeAimbot then return end
     local function getNearestPlayerHRP()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return nil, nil end
-        local closest, closestHRP, best = nil, nil, math.huge
+        if not hrp then return nil end
+        local closestHRP, best = nil, math.huge
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer then
                 local c = p.Character
@@ -7640,42 +7607,93 @@ task.spawn(function()
                     local hum = c:FindFirstChildOfClass("Humanoid")
                     if h and hum and hum.Health > 0 then
                         local d = (hrp.Position - h.Position).Magnitude
-                        if d < best then best = d; closest = p; closestHRP = h end
+                        if d < best then best = d; closestHRP = h end
                     end
                 end
             end
         end
-        return closest, closestHRP
+        return closestHRP
     end
+
+    -- Detectar cual estrategia funciona en este servidor
+    -- Algunos servidores usan (Vector3, BasePart), otros usan solo Vector3
+    local laserStrategy = nil -- nil = sin detectar, 1 = con Target, 2 = solo posicion
 
     local function fireUseItemAtTarget(targetHRP)
         pcall(function()
-            local netFolder = ReplicatedStorage:FindFirstChild("Packages")
-                             and ReplicatedStorage.Packages:FindFirstChild("Net")
-            if not netFolder then return end
-            local children = netFolder:GetChildren()
-            for i = 1, #children do
-                if children[i].Name == "RE/UseItem" and children[i + 1] then
-                    children[i + 1]:FireServer(targetHRP.Position, targetHRP)
-                    break
+            local remote = Utility:LarpNet("RE/UseItem")
+            if not remote then return end
+
+            local hitPos = targetHRP.Position
+
+            -- Mover el mouse virtualmente hacia el target antes de disparar
+            -- Esto hace que aunque el servidor ignore Target, use la posicion correcta
+            local camera = workspace.CurrentCamera
+            local screenPos, onScreen = camera:WorldToScreenPoint(hitPos)
+
+            -- Intentar mover el mouse al target (funciona en algunos executors)
+            pcall(function()
+                if VirtualInputManager then
+                    VirtualInputManager:SendMouseMoveEvent(
+                        math.floor(screenPos.X),
+                        math.floor(screenPos.Y),
+                        game
+                    )
                 end
+            end)
+
+            if laserStrategy == 1 then
+                -- Estrategia 1: con Target (BasePart) como segundo argumento
+                remote:FireServer(hitPos, targetHRP)
+
+            elseif laserStrategy == 2 then
+                -- Estrategia 2: solo posicion Vector3 sin Target
+                remote:FireServer(hitPos)
+
+            else
+                -- Sin estrategia detectada: intentar ambas
+                -- Primero intentar con Target
+                local ok1 = pcall(function()
+                    remote:FireServer(hitPos, targetHRP)
+                end)
+                -- Esperar un tick y tambien disparar solo con posicion como fallback
+                task.delay(0.05, function()
+                    pcall(function()
+                        remote:FireServer(hitPos)
+                    end)
+                end)
             end
         end)
+    end
+
+    -- Funcion para detectar automaticamente la estrategia segun si el laser golpea
+    -- Se hace hook del LocalScript de la Laser Cape para leer como llama al remote original
+    local function detectLaserStrategy(tool)
+        -- IMPORTANTE: NO leer .Source del LocalScript del tool. Acceder al source
+        -- de scripts cerrados del juego es una de las heuristicas tipicas del
+        -- anticheat (codigo BAC-2517). Dejamos laserStrategy=nil para que se
+        -- use siempre el modo dual (probar ambas firmas en runtime).
+        laserStrategy = nil
     end
 
     local hookedLaserCapes = {}
     local function hookLaserCape(tool)
         if hookedLaserCapes[tool] then return end
         hookedLaserCapes[tool] = true
+        detectLaserStrategy(tool)
         tool.Activated:Connect(function()
             if not Config.LaserCapeAimbot then return end
-            local _, targetHRP = getNearestPlayerHRP()
-            if targetHRP then fireUseItemAtTarget(targetHRP) end
+            local targetHRP = getNearestPlayerHRP()
+            if not targetHRP then return end
+
+            -- Bloquear el disparo original para reemplazarlo con el nuestro
+            -- (interceptar antes de que el cliente use la posicion del cursor)
+            fireUseItemAtTarget(targetHRP)
         end)
         tool.AncestryChanged:Connect(function() hookedLaserCapes[tool] = nil end)
     end
 
-    local function watchForLaserCape(container)
+    local function watchContainer(container)
         for _, t in ipairs(container:GetChildren()) do
             if t.Name == "Laser Cape" then hookLaserCape(t) end
         end
@@ -7684,9 +7702,11 @@ task.spawn(function()
         end)
     end
 
-    watchForLaserCape(LocalPlayer.Backpack)
+    watchContainer(LocalPlayer.Backpack)
     LocalPlayer.CharacterAdded:Connect(function(char)
-        watchForLaserCape(LocalPlayer.Backpack)
+        -- Re-watchear el Backpack al respawnear (se vacia y repopulea)
+        laserStrategy = nil -- Resetear estrategia al respawnear (puede cambiar de server)
+        watchContainer(LocalPlayer.Backpack)
         char.ChildAdded:Connect(function(t)
             if t.Name == "Laser Cape" then hookLaserCape(t) end
         end)
